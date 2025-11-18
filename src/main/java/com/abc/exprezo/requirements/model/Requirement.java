@@ -1,4 +1,4 @@
-package com.abc.exprezo.requirements.domain;
+package com.abc.exprezo.requirements.model;
 
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;

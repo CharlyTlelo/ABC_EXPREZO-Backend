@@ -1,8 +1,8 @@
 package com.abc.exprezo.requirements.api;
 
 import com.abc.exprezo.requirements.api.dto.RequirementUpdateDto;
-import com.abc.exprezo.requirements.domain.Requirement;
-import com.abc.exprezo.requirements.domain.RequirementStatus;
+import com.abc.exprezo.requirements.model.Requirement;
+import com.abc.exprezo.requirements.model.RequirementStatus;
 import com.abc.exprezo.requirements.service.RequirementService;
 import org.springframework.core.io.Resource;
 import org.springframework.http.*;
@@ -12,6 +12,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.*;
 
+@CrossOrigin(origins = "http://localhost:4200")
 @RestController
 @RequestMapping("/api/v1/reqs")
 public class RequirementController {
@@ -43,12 +44,13 @@ public class RequirementController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public Requirement create(
-            @RequestPart("file") MultipartFile file,
+            @RequestPart(value = "file", required = false) MultipartFile file,
             @RequestPart(value = "title", required = false) String title,
             @RequestPart(value = "description", required = false) String description
     ) throws IOException {
         return service.create(title, description, file);
     }
+
 
     @PutMapping("/{id}")
     public Requirement update(@PathVariable String id, @RequestBody RequirementUpdateDto body) {
@@ -68,5 +70,10 @@ public class RequirementController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + res.getFilename() + "\"")
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .body(res);
+    }
+
+    @GetMapping("/next-folio")
+    public Map<String, String> nextFolio() {
+        return Map.of("folio", service.nextFolioForToday());
     }
 }

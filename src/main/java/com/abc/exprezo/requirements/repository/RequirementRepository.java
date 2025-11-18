@@ -1,10 +1,11 @@
 package com.abc.exprezo.requirements.repository;
 
-import com.abc.exprezo.requirements.domain.Requirement;
-import com.abc.exprezo.requirements.domain.RequirementStatus;
+import com.abc.exprezo.requirements.model.Requirement;
+import com.abc.exprezo.requirements.model.RequirementStatus;
 import org.springframework.data.mongodb.repository.MongoRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface RequirementRepository extends MongoRepository<Requirement, String> {
 
@@ -16,4 +17,7 @@ public interface RequirementRepository extends MongoRepository<Requirement, Stri
 
     // útil si decides seguir generando folios cuando falten
     boolean existsByFolio(String folio);
+
+    // 👇 NUEVO: último folio del día, para incrementar
+    Optional<Requirement> findTopByFolioStartingWithOrderByFolioDesc(String prefix);
 }

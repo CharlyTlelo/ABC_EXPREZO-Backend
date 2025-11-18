@@ -1,7 +1,7 @@
 package com.abc.exprezo.requirements.service;
 
-import com.abc.exprezo.requirements.domain.Requirement;
-import com.abc.exprezo.requirements.domain.RequirementStatus;
+import com.abc.exprezo.requirements.model.Requirement;
+import com.abc.exprezo.requirements.model.RequirementStatus;
 import com.abc.exprezo.requirements.repository.RequirementRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.PathResource;
@@ -14,6 +14,7 @@ import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.time.Instant;
 
 @Service
 public class RequirementService {
@@ -23,7 +24,8 @@ public class RequirementService {
     @Value("${app.storage.root}")
     private String storageRoot;
 
-    private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+    private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
+
 
     public RequirementService(RequirementRepository repo) {
         this.repo = repo;
@@ -51,48 +53,61 @@ public class RequirementService {
     }
 
     // =========================
-    // Creaciones
-    // =========================
+// Creaciones
+// =========================
 
-    /** Alta clásica (sin forzar folio) */
+    /**
+     * Alta de requerimiento.
+     * - Genera folio tipo REQ-YYYYMMDD-LNN (L = letra A..Z, NN = 00..99)
+     * - Estatus inicial: PENDING
+     * - Archivo es opcional (por si lo mandas desde Postman)
+     */
     public Requirement create(String title, String description, MultipartFile file) throws IOException {
-        return createWithFolio(title, description, file, null);
+        if (!StringUtils.hasText(title)) {
+            throw new IllegalArgumentException("title requerido");
+        }
+
+        Requirement r = new Requirement();
+        r.setTitle(title);
+        r.setDescription(description);
+        r.setStatus(RequirementStatus.PENDING);
+        r.setCreatedAt(Instant.now());
+        r.setUpdatedAt(Instant.now());
+
+
+
+        // Folio autogenerado
+        String folio = nextFolioForToday();
+        int guard = 0;
+        while (repo.existsByFolio(folio) && guard++ < 5) {
+            folio = nextFolioForToday();
+        }
+        r.setFolio(folio);
+
+        // Si viene archivo, se guarda y se llenan metadatos (opcional)
+        if (file != null && !file.isEmpty()) {
+            String originalName = StringUtils.cleanPath(
+                    Objects.requireNonNull(file.getOriginalFilename())
+            );
+            String ext = getExtension(originalName);
+
+            String storageName = folio + (ext.isEmpty() ? "" : "." + ext);
+
+            Path root = Paths.get(storageRoot).toAbsolutePath().normalize();
+            Files.createDirectories(root);
+            Path dest = root.resolve(storageName).normalize();
+            Files.copy(file.getInputStream(), dest, StandardCopyOption.REPLACE_EXISTING);
+
+            r.setOriginalFilename(originalName);
+            r.setContentType(file.getContentType());
+            r.setSizeBytes(file.getSize());
+            r.setStoragePath(storageName);
+        }
+
+        return repo.save(r);
     }
 
-    /** 🔹 NUEVO: Alta asignando folio (si no viene, se genera) */
-    public Requirement createWithFolio(String title,
-                                       String description,
-                                       MultipartFile file,
-                                       String folio) throws IOException {
-        if (file == null || file.isEmpty()) throw new IllegalArgumentException("Archivo requerido");
 
-        // Dir base de almacenamiento
-        Path root = Paths.get(storageRoot).toAbsolutePath().normalize();
-        Files.createDirectories(root);
-
-        String ext = getExtension(file.getOriginalFilename());
-        String effectiveFolio = (StringUtils.hasText(folio)) ? folio : genFolio(UUID.randomUUID().toString().substring(0, 8));
-
-        // Nombre físico para evitar colisiones: <folio>-<uniq>.<ext>
-        String uniq = UUID.randomUUID().toString().substring(0, 8);
-        String storedName = effectiveFolio + "-" + uniq + (ext.isBlank() ? "" : "." + ext);
-
-        Path target = root.resolve(storedName).normalize();
-        Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
-
-        Requirement req = new Requirement();
-        req.setFolio(effectiveFolio);
-        req.setTitle(title);
-        req.setDescription(description);
-        req.setStatus(RequirementStatus.PENDING);
-        req.setOriginalFilename(file.getOriginalFilename());
-        req.setContentType(file.getContentType());
-        req.setSizeBytes(file.getSize());
-        req.setStoragePath(root.relativize(target).toString().replace("\\", "/"));
-        // reviewDecision / reviewReason inician nulos
-
-        return repo.save(req);
-    }
 
     // =========================
     // Actualizaciones
@@ -161,14 +176,40 @@ public class RequirementService {
         return (i < 0) ? "" : name.substring(i + 1);
     }
 
-    /** Genera un folio base REQ-YYYYMMDD-HHMMSS-<suffix> único */
-    private String genFolio(String suffix) {
-        String base = "REQ-" + LocalDateTime.now().format(FMT);
-        String folio = base + "-" + (suffix == null ? UUID.randomUUID().toString().substring(0, 8) : suffix);
-        // Si ya existiera, regeneramos (muy raro, pero por seguridad)
-        while (repo.existsByFolio(folio)) {
-            folio = base + "-" + UUID.randomUUID().toString().substring(0, 8);
+    // Genera el siguiente folio del día con patrón REQ-YYYYMMDD-LNN
+    /**
+     * Genera el siguiente folio del día actual con formato REQ-YYYYMMDD-LNN
+     * L = A..Z, NN = 00..99
+     */
+    public String nextFolioForToday() {
+        String date = LocalDateTime.now().format(FMT);  // 20251114
+        String prefix = "REQ-" + date + "-";            // REQ-20251114-
+
+        Optional<Requirement> lastOpt =
+                repo.findTopByFolioStartingWithOrderByFolioDesc(prefix);
+
+        char letter = 'A';
+        int number = 0;
+
+        if (lastOpt.isPresent()) {
+            String last = lastOpt.get().getFolio();  // REQ-20251114-A05
+            String suffix = last.substring(prefix.length()); // A05
+            if (suffix.length() >= 2) {
+                letter = suffix.charAt(0);
+                try {
+                    number = Integer.parseInt(suffix.substring(1));
+                } catch (NumberFormatException ignored) {
+                    number = 0;
+                }
+                number++;
+                if (number >= 100) {
+                    number = 0;
+                    letter = (letter == 'Z') ? 'A' : (char) (letter + 1);
+                }
+            }
         }
-        return folio;
+
+        return String.format("%s%c%02d", prefix, letter, number);
     }
+
 }
