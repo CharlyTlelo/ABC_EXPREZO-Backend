@@ -8,6 +8,6 @@ public class GrupoEcommServiceApplication {
 
 	public static void main(String[] args) {
 		SpringApplication.run(GrupoEcommServiceApplication.class, args);
-		System.out.println("Grupo Ecomm ---ABC Exprezo---");
+		System.out.println("-> Grupo Ecomm ---ABC Exprezo---");
 	}
 }
